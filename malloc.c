@@ -1,4 +1,3 @@
-#define _CRT_SECURE_NO_WARNINGS
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -31,10 +30,11 @@ addrs_t Malloc(size_t size)
 	//TODO: Decide if we want more internal fragmentation and do it if we do
 
 	//Internally fragment so stuff falls on boundries
-	size += size % 8;
-	char* i = (unsigned*)(baseptr + headerSize);
+	size += 8 - size % 8;
+
+	char* i = baseptr + headerSize;
 	//iterate over all size blocks until the first fit is found
-	while ((unsigned*)(*i&~1) < size - 2 * headerSize || !((*(int*)(i)) & 1))
+	while (*(unsigned*)(i)&~1 < size - 2 * headerSize || !((*(unsigned*)(i)) & 1))
 	{
 		i += *(unsigned*)(i)&~1;
 	}
@@ -55,7 +55,7 @@ addrs_t Malloc(size_t size)
 	*(unsigned*)(i + blockSize - headerSize) = (blockSize - size) | 1;
 	*(unsigned*)(i + size + 2 * headerSize) = (blockSize - size) | 1;
 	//Update used block footer and header
-	*(unsigned*)(i + size + 2 * headerSize) = (size + 2 * headerSize);
+	*(unsigned*)(i + size + headerSize) = (size + 2 * headerSize);
 	*(unsigned*)(i) = (size + 2 * headerSize);
 	
 	return i + headerSize;
@@ -113,36 +113,9 @@ void Get(any_t returnData, addrs_t addrs, size_t size)
 	Free(addrs);
 }
 
-void main(int argc, char **argv) {
-
-	int i, n;
-	char s[80];
-	addrs_t addr1, addr2;
-	char data[80];
-	int mem_size = 1 << 20;
-	if (argc > 2) {
-		fprintf("Usage: %s [memory area size in bytes]\n", argv[0]);
-		exit(1);
-	}
-	else if (argc == 2)
-		mem_size = atoi(argv[1]);
-
-	Init(mem_size);
-
-	for (i = 0;; i++) {
-
-		n = sprintf(s, "String 1, the current count is %d\n", i);
-		addr1 = Put(s, n + 1);
-		addr2 = Put(s, n + 1);
-		if (addr1)
-			printf("Data at %x is: %s", addr1, addr1);
-		if (addr2)
-			printf("Data at %x is: %s", addr2, addr2);
-		if (addr2)
-			Get((any_t)data, addr2, n + 1);
-		if (addr1)
-			Get((any_t)data, addr1, n + 1);
-	}
+void main(int argc, char **argv) 
+{
+	Init(1048576);
 }
 /*README:
 Allocated heap size includes the space used by all data structures to maintain the heap
