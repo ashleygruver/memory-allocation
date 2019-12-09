@@ -11,8 +11,12 @@ addrs_t baseptr;
 void Init(size_t size)
 {
 	/*Defines the base address of the new heap block*/
-	//TODO: check for size = 0 and size % 8 != 0
-	baseptr = malloc(size);
+	
+  //TODO: check for size = 0 and size % 8 != 0
+  //Round up size to the nearest multiple of 8
+  size += 8 - size % 8;
+
+  baseptr = malloc(size);
 
 	//Set header and footer(1 represents free)
 	*(unsigned*)(baseptr + headerSize) = (size - 2 * headerSize) | 1;
@@ -111,6 +115,53 @@ void Get(any_t returnData, addrs_t addrs, size_t size)
 {
 	memcpy(returnData, addrs, size);
 	Free(addrs);
+}
+
+addrs_t Vbaseptr;
+addrs_t* redir_tabl;
+unsigned int num_entries;
+unsigned int table_size;
+
+void VInit(size_t size)
+{
+  size += 8 - size % 8;
+
+  Vbaseptr = malloc(size);
+  
+  // [redirection_table] is needed to help [redir_tabl] because of initialization problems and scope
+  table_size = size / 8;
+  addrs_t redirection_table[table_size]; 
+	redir_tabl = redirection_table;
+}
+
+addrs_t* VMalloc(size_t size)
+{
+  //TODO: Have things be put into the redirection table nicely
+  
+  // We do not desire to allocate zero bytes
+  if(!size)
+  {
+    return NULL;
+  }
+  
+  int index = 0;
+  while(!!redir_tabl[index] && index < table_size)
+  {
+    index++;
+  }
+
+  // If the table appears to be full, we return null.
+  if(index == table_size)
+  {
+    return NULL;
+  }
+
+  num_entries++;
+}
+
+void VFree(addrs_t *addr)
+{
+	num_entries--;
 }
 
 void main(int argc, char **argv) 
