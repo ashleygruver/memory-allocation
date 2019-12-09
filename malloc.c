@@ -34,11 +34,11 @@ addrs_t Malloc(size_t size)
 
 	char* i = baseptr + headerSize;
 	//iterate over all size blocks until the first fit is found
-	while (*(unsigned*)(i)&~1 < size - 2 * headerSize || !((*(unsigned*)(i)) & 1))
+	while ((*(unsigned*)(i))&~1 < size - 2 * headerSize || !((*(unsigned*)(i)) & 1))
 	{
 		i += *(unsigned*)(i)&~1;
 	}
-	int blockSize = *i&~1; //Includes header and footer
+	unsigned blockSize = *(unsigned*)(i)&~1; //Includes header and footer
 	//Check for heap end
 	if (*(unsigned*)(i) == ~0)
 		return NULL;
@@ -116,6 +116,10 @@ void Get(any_t returnData, addrs_t addrs, size_t size)
 void main(int argc, char **argv) 
 {
 	Init(1048576);
+	addrs_t a = Malloc(0);
+	addrs_t b = Malloc(1);
+	Free(b);
+	Free(a);
 }
 /*README:
 Allocated heap size includes the space used by all data structures to maintain the heap
