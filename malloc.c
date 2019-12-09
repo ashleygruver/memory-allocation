@@ -121,15 +121,18 @@ addrs_t Vbaseptr;
 addrs_t* redir_tabl;
 unsigned int num_entries;
 unsigned int table_size;
+addrs_t freeptr;
 
 void VInit(size_t size)
 {
   size += 8 - size % 8;
 
   Vbaseptr = malloc(size);
+  freeptr = Vbaseptr;
   
-  // [redirection_table] is needed to help [redir_tabl] because of initialization problems and scope
+  // Have chunks 8 bytes
   table_size = size / 8;
+  // [redirection_table] is needed to help [redir_tabl] because of initialization problems and scope
   addrs_t redirection_table[table_size]; 
 	redir_tabl = redirection_table;
 }
@@ -141,7 +144,7 @@ addrs_t* VMalloc(size_t size)
   // We do not desire to allocate zero bytes
   if(!size)
   {
-    return NULL;
+    return NULL; 
   }
   
   int index = 0;
@@ -164,7 +167,7 @@ void VFree(addrs_t *addr)
 	num_entries--;
 }
 
-void main(int argc, char **argv) 
+int main(int argc, char **argv) 
 {
 	Init(1048576);
 	addrs_t a = Malloc(0);
