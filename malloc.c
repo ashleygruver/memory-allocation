@@ -160,6 +160,7 @@ addrs_t* VMalloc(size_t size)
   }
 
   num_entries++;
+  return NULL;
 }
 
 void VFree(addrs_t *addr)
@@ -174,6 +175,8 @@ int main(int argc, char **argv)
 	addrs_t b = Malloc(1);
 	Free(b);
 	Free(a);
+	
+	return 0;
 }
 /*README:
 Allocated heap size includes the space used by all data structures to maintain the heap
