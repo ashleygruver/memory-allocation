@@ -25,21 +25,15 @@ addrs_t* VMalloc(size_t size)
 
 	// We do not desire to allocate zero bytes
 	if (!size)
-	{
 		return NULL;
-	}
 
 	int index = 0;
 	while (!!redir_tabl[index] && index < 65536)
-	{
 		index++;
-	}
 
 	// If the table appears to be full, we return null.
 	if (index == 65536)
-	{
 		return NULL;
-	}
 
 	// Pad requested size to be a multiple of 8
 	size += 8 - size % 8;
@@ -81,9 +75,7 @@ void VFree(addrs_t* addr) //[addr] is like the index in the table?
 			{
 				need_shifting[shifted++] = index;
 				if (!upper_bound || curr < upper_bound)
-				{
 					upper_bound = curr;
-				}
 			}
 			count++;
 		}
@@ -93,23 +85,17 @@ void VFree(addrs_t* addr) //[addr] is like the index in the table?
 	//Two scenarios: the block isn't/is already at the end of the heap
 	if(upper_bound) //Isn't last
 	{
-		//Is this the variable type that the cool kids like to use?
 		size_t size = upper_bound - *addr;
 
 		int block;
 		while (need_shifting[block])
-		{
-			//This *should* move a block over
 			redir_tabl[need_shifting[block++]] -= size;
-		}
+      //This *should* move a block over per iteration
 
 		*(addrs_t*)(baseptr + 8) -= size;
 	}
-	else //Is last
-	{
-		//Assign free space to given address
+	else //Is last, assign free space to given address
 		*(addrs_t*)(baseptr + 8) = *addr;
-	}
 
 	//Vacate the table spot
 	*addr = NULL;
@@ -118,24 +104,21 @@ void VFree(addrs_t* addr) //[addr] is like the index in the table?
 	*(unsigned*)(baseptr) -= 1;
 }
 
-//Haven't done either of these yet :<
 addrs_t* VPut(any_t data, size_t size)
 {
-	/* Allocate size bytes from M2 using VMalloc().
-	 Copy size bytes of data into Malloc'd memory.
-	 You can assume data is a storage area outside M2.
-	 Return pointer to redirection table for Malloc'd memory. */
-
-	return NULL;
+	addrs_t* addr = VMalloc(size);
+	if(addr)
+		memcpy(*addr, data, size);
+	return addr;
 }
 
 void VGet(any_t return_data, addrs_t* addr, size_t size)
 {
-	/*Copy size bytes from the memory area, M2, to data address. The
-	  addr argument specifies a pointer to a redirection table entry.
-	  As with VPut(), you can assume data is a storage area outside M2.
-	  Finally, de-allocate size bytes of memory using VFree() with addr
-	  pointing to a redirection table entry. */
+	if(addr)
+  {
+    memcpy(return_data, *addr, size);
+	  VFree(addr);
+  }
 }
 
 int main()
