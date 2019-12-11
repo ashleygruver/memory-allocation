@@ -7,145 +7,121 @@ typedef void *any_t;
 
 addrs_t baseptr;
 
-void Init(size_t size)
+//All of this needs to go
+addrs_t redir_tabl[65536];
+
+void VInit(size_t size)
 {
-	/*Defines the base address of the new heap block*/
-	//Checks for heap size < 16 (Data structures take the whole heap)
-	if (size <= 16)
-		return;
-	if (size % 8)
-		size += 8 - size % 8;
-	baseptr = malloc(size);
+	size += 8 - size % 8;
 
-	//Set header and footer(1 represents free)
-	*(unsigned*)(baseptr + 4) = (size - 8) | 1;
-	*(unsigned*)(baseptr + size - 8) = (size - 8) | 1;
-
-	//Set heap beginning and end buffer
-	//TODO: Fix the buffers
-	*(unsigned*)(baseptr) = 0; //Always marked as used, so it won't try to be merged
-	*(unsigned*)(baseptr + size - 4) = ~0; //Will cause the loop to exit, but is an easy flag to catch
+	baseptr = malloc(size + 16);
+	*(unsigned*)(baseptr) += 1;
+  *(addrs_t*)(baseptr + 8) = baseptr + 8;
 }
 
-addrs_t Malloc(size_t size)
+addrs_t* VMalloc(size_t size)
 {
-	/*Returns the address of a free block of the given size. If no such block exists, returns null*/
+	//TODO: Have things be put into the redirection table nicely (non-linear array traversal)
 
-	//Check if size is 0
+	// We do not desire to allocate zero bytes
 	if (!size)
 		return NULL;
 
-	//Internally fragment so stuff falls on boundries
-	if (size % 8)
-	{
-		size += 8 - size % 8;
-	}
+	int index = 0;
+	while (!!redir_tabl[index] && index < 65536)
+		index++;
 
-	addrs_t i = baseptr + 4;
-	//iterate over all size blocks until the first fit is found
-	while (((*(unsigned*)(i))&~1) < size + 8 || !((*(unsigned*)(i)) & 1))
-	{
-		i += *(unsigned*)(i)&~1;
-	}
-	unsigned blockSize = *(unsigned*)(i)&~1; //Includes header and footer
-	//Check for heap end
-	if (*(unsigned*)(i) == ~0)
+	// If the table appears to be full, we return null.
+	if (index == 65536)
 		return NULL;
 
-	//Check if a block needs to be split
-	if (blockSize == size + 8 || blockSize == size + 16)
-	{
-		//update block to show not free
-		*(unsigned*)(i) = blockSize;
-		*(unsigned*)(i + size) = blockSize;
-	}
-	//Split a block
-	//Update free block footer and header
-	else 
-	{
-		*(unsigned*)(i + blockSize - 4) = (blockSize - size - 8) | 1;
-		*(unsigned*)(i + size + 8) = (blockSize - size - 8) | 1;
-		//Update used block footer and header
-		*(unsigned*)(i + size + 4) = (size + 8);
-		*(unsigned*)(i) = (size + 8);
-	}
-	
-	return i + 4;
+	// Pad requested size to be a multiple of 8
+	size += 8 - size % 8;
+
+	//Assuming that none of the bad stuff happened, we can allocate the appropriate space, and then update [freeptr] accordingly.
+	redir_tabl[index] = *(addrs_t*)(baseptr + 8);
+	*(addrs_t*)(baseptr + 8) += size;
+
+	//As we've added a new element, the size of things in the table grows by one.
+	*(unsigned*)(baseptr) += 1;
+
+	return &redir_tabl[index];
 }
 
-void Free(addrs_t addrs)
+void VFree(addrs_t* addr) //[addr] is like the index in the table?
 {
-	//Define sizes of each block to reduce the clusterfuck of pointer(and memory accesses)
-	unsigned freedBlockSize = *(unsigned*)(addrs - 4);
-	unsigned beforeBlockSize = *(unsigned*)(addrs - 8) & ~1;
-	unsigned afterBlockSize = *(unsigned*)(addrs + freedBlockSize - 4) & ~1;
+	//TO-DO: We're given an address outside of redir_tabl (or do we not assume this will occur?)
 
-	//Same for whether blocks are free
-	char beforeBlockFree = *(unsigned*)(addrs - 8) & 1;
-	char afterBlockFree = *(unsigned*)(addrs + freedBlockSize - 4) & 1;
+	//Need to make something that gets all the addresses that need to be adjusted
+	int need_shifting[*(unsigned*)(baseptr)];
 
-	//Save pointers too
-	addrs_t beforeBlockHeader = addrs - beforeBlockSize - 4;
-	addrs_t afterBlockHeader = addrs + freedBlockSize - 4;
+	//Also somehow need to calculate the size of the memory that is to be freed, so that's what's [upper_bound] is for
+	addrs_t upper_bound;
 
-	//Don't free after the heap
-	if (*(unsigned*)(afterBlockHeader) == ~0)
-		afterBlockFree = 0;
+	/* Loop variables:
+	  [index] is for all table values
+	  [count] is for all non-NULL table values
+	  [shifted] is for all table values that need to be tweaked after
+	  [curr] is merely one of those save call variable things*/
+	int count, index, shifted;
+	addrs_t curr;
 
-	//Check what to combine with
-	if (beforeBlockFree && afterBlockFree)
+	while (count < *(unsigned*)(baseptr))
 	{
-		//Update header and footer
-		*(unsigned*)(beforeBlockHeader) = (beforeBlockSize + freedBlockSize + afterBlockSize)|1;
-		*(unsigned*)(afterBlockHeader + afterBlockSize - 4) = (beforeBlockSize + freedBlockSize + afterBlockSize) | 1;
+		curr = redir_tabl[index];
+		if (curr)
+		{
+			if (curr > *addr) //Means [curr] needs to be adjusted
+			{
+				need_shifting[shifted++] = index;
+				if (!upper_bound || curr < upper_bound)
+					upper_bound = curr;
+			}
+			count++;
+		}
+		index++;
 	}
-	else if (beforeBlockFree)
+
+	//Two scenarios: the block isn't/is already at the end of the heap
+	if(upper_bound) //Isn't last
 	{
-		*(unsigned*)(beforeBlockHeader) = (beforeBlockSize + freedBlockSize) | 1;
-		*(unsigned*)(afterBlockHeader - 4) = (beforeBlockSize + freedBlockSize) | 1;
+		size_t size = upper_bound - *addr;
+
+		int block;
+		while (need_shifting[block])
+			redir_tabl[need_shifting[block++]] -= size;
+      //This *should* move a block over per iteration
+
+		*(addrs_t*)(baseptr + 8) -= size;
 	}
-	else if (afterBlockFree)
-	{
-		*(unsigned*)(addrs - 4) = (afterBlockSize + freedBlockSize) | 1;
-		*(unsigned*)(afterBlockHeader - 4) = (afterBlockSize + freedBlockSize) | 1;
-	}
-	else
-	{
-		*(unsigned*)(addrs - 4) = freedBlockSize | 1;
-		*(unsigned*)(afterBlockHeader - 4) = freedBlockSize | 1;
-	}
+	else //Is last, assign free space to given address
+		*(addrs_t*)(baseptr + 8) = *addr;
+
+	//Vacate the table spot
+	*addr = NULL;
+
+	//Block lost, decrement
+	*(unsigned*)(baseptr) -= 1;
 }
 
-addrs_t Put(any_t data, size_t size)
+addrs_t* VPut(any_t data, size_t size)
 {
-	addrs_t addrs = Malloc(size);
-	if (addrs)
-		memcpy(addrs, data, size);
-	return addrs;
+	addrs_t* addr = VMalloc(size);
+	if(addr)
+		memcpy(*addr, data, size);
+	return addr;
 }
 
-void Get(any_t returnData, addrs_t addrs, size_t size)
+void VGet(any_t return_data, addrs_t* addr, size_t size)
 {
-	memcpy(returnData, addrs, size);
-	Free(addrs);
+  if(addr)
+  {
+	  memcpy(return_data, *addr, size);
+	  VFree(addr);
+  }
 }
 
-void heapChecker()
+int main()
 {
-	addrs_t i = baseptr + 4;
-	while (*(unsigned*)(i) != ~0)
-	{
-
-	}
+  return 0;
 }
-
-/*README:
-Allocated heap size includes the space used by all data structures to maintain the heap
-Size in the header and footer includes the header and footer size. e.g. if i points to the header, i+size points to the header of the next
-element in the heap.
-Heap sizes are rounded up to the nearest multiple of 8
-A heap cannot be allocated without at least 24 bytes of memory allocated. Attempts to do so will result in Init returning without
-initilizing the heap
-Attempts to Malloc 0 bytes will result in a null pointer return
-Any free blocks of 8 bytes will be incorperated as internal fragmentation, as the free list takes the 
-*/
