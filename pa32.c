@@ -10,18 +10,27 @@ addrs_t redir_tabl[65536];
 
 void VInit(size_t size)
 {
-	size += 8 - size % 8;
+	//Make [size] a multiple of 8 for neatness
+	if(!!(size % 8))
+		size += 8 - size % 8;
 
 	baseptr = malloc(size + 16);
-	*(unsigned*)(baseptr) += 1;
-  *(addrs_t*)(baseptr + 8) = baseptr + 8;
+	
+	//Counts the number of table entries
+	*(unsigned*)(baseptr) = 0;
+
+	//Stores the size of the given space
+	*(unsigned*)(baseptr + 4) = size + 16;
+
+	//Stores the address where free space begins
+	*(addrs_t*)(baseptr + 8) = baseptr + 16;
 }
 
 addrs_t* VMalloc(size_t size)
 {
 	//TODO: Have things be put into the redirection table nicely (non-linear array traversal)
 
-	// We do not desire to allocate zero bytes
+	//We do not desire to allocate zero bytes
 	if (!size)
 		return NULL;
 
@@ -29,13 +38,18 @@ addrs_t* VMalloc(size_t size)
 	while (!!redir_tabl[index] && index < 65536)
 		index++;
 
-	// If the table appears to be full, we return null.
+	//If the table appears to be full, we return null.
 	if (index == 65536)
 		return NULL;
 
-	// Pad requested size to be a multiple of 8
-	size += 8 - size % 8;
-
+	//Pad requested size to be a multiple of 8
+	if(!!(size % 8))
+		size += 8 - size % 8;
+	
+	//Can't go over that size limit!
+	if(*(addrs_t*)(baseptr + 8) + size > baseptr + *(unsigned*)(baseptr + 4))
+		return NULL;
+	
 	//Assuming that none of the bad stuff happened, we can allocate the appropriate space, and then update [freeptr] accordingly.
 	redir_tabl[index] = *(addrs_t*)(baseptr + 8);
 	*(addrs_t*)(baseptr + 8) += size;
@@ -49,12 +63,14 @@ addrs_t* VMalloc(size_t size)
 void VFree(addrs_t* addr) //[addr] is like the index in the table?
 {
 	//TO-DO: We're given an address outside of redir_tabl (or do we not assume this will occur?)
-
+	//Can't free anything if there's nothing there
+	if(!*(unsigned*)(baseptr))
+		return;
 	//Need to make something that gets all the addresses that need to be adjusted
 	int need_shifting[*(unsigned*)(baseptr)];
 
 	//Also somehow need to calculate the size of the memory that is to be freed, so that's what's [upper_bound] is for
-	addrs_t upper_bound;
+	addrs_t upper_bound = NULL;
 
 	/* Loop variables:
 	  [index] is for all table values
@@ -64,12 +80,12 @@ void VFree(addrs_t* addr) //[addr] is like the index in the table?
 	int count, index, shifted;
 	addrs_t curr;
 
-	while (count < *(unsigned*)(baseptr))
+	while(count < *(unsigned*)(baseptr) && index < 65536)
 	{
 		curr = redir_tabl[index];
-		if (curr)
+		if(curr)
 		{
-			if (curr > *addr) //Means [curr] needs to be adjusted
+			if(curr > *addr) //Means [curr] needs to be adjusted
 			{
 				need_shifting[shifted++] = index;
 				if (!upper_bound || curr < upper_bound)
@@ -83,10 +99,10 @@ void VFree(addrs_t* addr) //[addr] is like the index in the table?
 	//Two scenarios: the block isn't/is already at the end of the heap
 	if(upper_bound) //Isn't last
 	{
-		size_t size = upper_bound - *addr;
+		unsigned size = upper_bound - *addr;
 
 		int block;
-		while (need_shifting[block])
+		while(block <= 65536 && need_shifting[block])
 			redir_tabl[need_shifting[block++]] -= size;
       //This *should* move a block over per iteration
 
@@ -117,9 +133,4 @@ void VGet(any_t return_data, addrs_t* addr, size_t size)
     memcpy(return_data, *addr, size);
 	  VFree(addr);
   }
-}
-
-int main()
-{
-  return 0;
 }
