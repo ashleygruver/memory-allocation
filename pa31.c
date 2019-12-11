@@ -42,7 +42,15 @@ addrs_t Malloc(size_t size)
 {
 	/*Returns the address of a free block of the given size. If no such block exists, returns null*/
 	//Start timer and check pad bytes
-	unsigned necessaryPad = 8 - size % 8;
+	unsigned necessaryPad;
+	if(size%8)
+	{
+		necessaryPad = 8 - size % 8;
+	}
+	else
+	{
+		necessaryPad = 0;
+	}
 	unsigned long start, end;
 	rdtsc(&start);
 
@@ -105,6 +113,8 @@ addrs_t Malloc(size_t size)
 	rdtsc(&end);
 	mallocTime += end - start;
 	mallocs++;
+	if(size < blockSize)
+		necessaryPad += 8;
 	pad[i - baseptr] = necessaryPad;
 	padBytes += necessaryPad;
 
@@ -197,26 +207,24 @@ void heapChecker()
 	unsigned allocBytes = 0;
 	unsigned freeBlocks = 0;
 	unsigned freeBytes = 0;
-	unsigned dataStructureFull = 0;
 	while (*(unsigned*)(i) != ~0)
 	{
 		unsigned size = *(unsigned*)(i) & ~1;
 		if (*(unsigned*)(i) & 1)
 		{
 			freeBlocks++;
-			freeBytes += size;
+			freeBytes += size - 8;
 		}
 		else
 		{
 			allocBlocks++;
-			allocBytes += size;
-			dataStructureFull += 8;
+			allocBytes += size - 8;
 		}
 		i += size;
 	}
 	printf("Number of allocated blocks : %d\n", allocBlocks);
 	printf("Number of free blocks  : %d\n", freeBlocks);
-	printf("Raw total number of bytes allocated : %d\n", allocBytes - padBytes - dataStructureFull);
+	printf("Raw total number of bytes allocated : %d\n", allocBytes - padBytes);
 	printf("Padded total number of bytes allocated : %d\n", allocBytes);
 	printf("Raw total number of bytes free : %d\n", freeBytes);
 	printf("Aligned total number of bytes free : %d\n", freeBytes);
@@ -247,18 +255,9 @@ Total clock cycles for all requests: XXXX
 //#if 0
 int main(int arg, char* args)
 {
-	Init(566);
-	int i;
-	addrs_t a[8];
-	for(i = 0; i<8; i++)
-	{
-		a[i] = Malloc(10*i);
-	}
-	heapChecker();
-	for(i = 0; i<8; i++)
-	{
-		Free(a[i]);
-	}
+	Init(32);
+	addrs_t a = Malloc(1);
+	Free(a);
 	heapChecker();
 }
 //#endif
