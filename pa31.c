@@ -7,121 +7,214 @@ typedef void *any_t;
 
 addrs_t baseptr;
 
-//All of this needs to go
-addrs_t redir_tabl[65536];
+//Heapchecker stuff
+unsigned padBytes = 0;
+unsigned mallocs = 0;
+unsigned frees = 0;
+unsigned fails = 0;
+unsigned mallocTime = 0;
+unsigned freeTime = 0;
+char pad[];
 
-void VInit(size_t size)
+
+void Init(size_t size)
 {
-	size += 8 - size % 8;
+	/*Defines the base address of the new heap block*/
+	//Checks for heap size < 16 (Data structures take the whole heap)
+	if (size <= 16)
+		return;
+	if (size % 8)
+		size += 8 - size % 8;
+	baseptr = malloc(size);
 
-	baseptr = malloc(size + 16);
-	*(unsigned*)(baseptr) += 1;
-  *(addrs_t*)(baseptr + 8) = baseptr + 8;
+	//Set header and footer(1 represents free)
+	*(unsigned*)(baseptr + 4) = (size - 8) | 1;
+	*(unsigned*)(baseptr + size - 8) = (size - 8) | 1;
+
+	//Set heap beginning and end buffer
+	//TODO: Fix the buffers
+	*(unsigned*)(baseptr) = 0; //Always marked as used, so it won't try to be merged
+	*(unsigned*)(baseptr + size - 4) = ~0; //Will cause the loop to exit, but is an easy flag to catch
 }
 
-addrs_t* VMalloc(size_t size)
+addrs_t Malloc(size_t size)
 {
-	//TODO: Have things be put into the redirection table nicely (non-linear array traversal)
+	/*Returns the address of a free block of the given size. If no such block exists, returns null*/
+	//Start timer and check pad bytes
+	unsigned necessaryPad = 8 - size % 8;
+	int start = rdtsc();
 
-	// We do not desire to allocate zero bytes
+	//Check if size is 0
 	if (!size)
 		return NULL;
 
-	int index = 0;
-	while (!!redir_tabl[index] && index < 65536)
-		index++;
+	//Internally fragment so stuff falls on boundries
+	if (size % 8)
+	{
+		size += 8 - size % 8;
+	}
 
-	// If the table appears to be full, we return null.
-	if (index == 65536)
+	addrs_t i = baseptr + 4;
+	//iterate over all size blocks until the first fit is found
+	while (((*(unsigned*)(i))&~1) < size + 8 || !((*(unsigned*)(i)) & 1))
+	{
+		i += *(unsigned*)(i)&~1;
+	}
+	unsigned blockSize = *(unsigned*)(i)&~1; //Includes header and footer
+	//Check for heap end
+	if (*(unsigned*)(i) == ~0)
 		return NULL;
 
-	// Pad requested size to be a multiple of 8
-	size += 8 - size % 8;
+	//Check if a block needs to be split
+	if (blockSize == size + 8 || blockSize == size + 16)
+	{
+		//update block to show not free
+		*(unsigned*)(i) = blockSize;
+		*(unsigned*)(i + size) = blockSize;
+	}
+	//Split a block
+	//Update free block footer and header
+	else 
+	{
+		*(unsigned*)(i + blockSize - 4) = (blockSize - size - 8) | 1;
+		*(unsigned*)(i + size + 8) = (blockSize - size - 8) | 1;
+		//Update used block footer and header
+		*(unsigned*)(i + size + 4) = (size + 8);
+		*(unsigned*)(i) = (size + 8);
+	}
 
-	//Assuming that none of the bad stuff happened, we can allocate the appropriate space, and then update [freeptr] accordingly.
-	redir_tabl[index] = *(addrs_t*)(baseptr + 8);
-	*(addrs_t*)(baseptr + 8) += size;
+	//Update stuff for heapchecker
+	mallocTime += rdtsc() - start;
+	mallocs++;
+	pad[i - baseptr] = necessaryPad;
+	padBytes += necessaryPad;
 
-	//As we've added a new element, the size of things in the table grows by one.
-	*(unsigned*)(baseptr) += 1;
-
-	return &redir_tabl[index];
+	
+	return i + 4;
 }
 
-void VFree(addrs_t* addr) //[addr] is like the index in the table?
+void Free(addrs_t addrs)
 {
-	//TO-DO: We're given an address outside of redir_tabl (or do we not assume this will occur?)
+	//Define sizes of each block to reduce the clusterfuck of pointer(and memory accesses)
+	unsigned freedBlockSize = *(unsigned*)(addrs - 4);
+	unsigned beforeBlockSize = *(unsigned*)(addrs - 8) & ~1;
+	unsigned afterBlockSize = *(unsigned*)(addrs + freedBlockSize - 4) & ~1;
 
-	//Need to make something that gets all the addresses that need to be adjusted
-	int need_shifting[*(unsigned*)(baseptr)];
+	//Same for whether blocks are free
+	char beforeBlockFree = *(unsigned*)(addrs - 8) & 1;
+	char afterBlockFree = *(unsigned*)(addrs + freedBlockSize - 4) & 1;
 
-	//Also somehow need to calculate the size of the memory that is to be freed, so that's what's [upper_bound] is for
-	addrs_t upper_bound;
+	//Save pointers too
+	addrs_t beforeBlockHeader = addrs - beforeBlockSize - 4;
+	addrs_t afterBlockHeader = addrs + freedBlockSize - 4;
 
-	/* Loop variables:
-	  [index] is for all table values
-	  [count] is for all non-NULL table values
-	  [shifted] is for all table values that need to be tweaked after
-	  [curr] is merely one of those save call variable things*/
-	int count, index, shifted;
-	addrs_t curr;
+	//Don't free after the heap
+	if (*(unsigned*)(afterBlockHeader) == ~0)
+		afterBlockFree = 0;
 
-	while (count < *(unsigned*)(baseptr))
+	//Check what to combine with
+	if (beforeBlockFree && afterBlockFree)
 	{
-		curr = redir_tabl[index];
-		if (curr)
+		//Update header and footer
+		*(unsigned*)(beforeBlockHeader) = (beforeBlockSize + freedBlockSize + afterBlockSize)|1;
+		*(unsigned*)(afterBlockHeader + afterBlockSize - 4) = (beforeBlockSize + freedBlockSize + afterBlockSize) | 1;
+	}
+	else if (beforeBlockFree)
+	{
+		*(unsigned*)(beforeBlockHeader) = (beforeBlockSize + freedBlockSize) | 1;
+		*(unsigned*)(afterBlockHeader - 4) = (beforeBlockSize + freedBlockSize) | 1;
+	}
+	else if (afterBlockFree)
+	{
+		*(unsigned*)(addrs - 4) = (afterBlockSize + freedBlockSize) | 1;
+		*(unsigned*)(afterBlockHeader - 4) = (afterBlockSize + freedBlockSize) | 1;
+	}
+	else
+	{
+		*(unsigned*)(addrs - 4) = freedBlockSize | 1;
+		*(unsigned*)(afterBlockHeader - 4) = freedBlockSize | 1;
+	}
+}
+
+addrs_t Put(any_t data, size_t size)
+{
+	addrs_t addrs = Malloc(size);
+	if (addrs)
+		memcpy(addrs, data, size);
+	return addrs;
+}
+
+void Get(any_t returnData, addrs_t addrs, size_t size)
+{
+	if (addrs)
+	{
+		memcpy(returnData, addrs, size);
+		Free(addrs);
+	}
+}
+
+void heapChecker()
+{
+	addrs_t i = baseptr + 4;
+	unsigned allocBlocks = 0;
+	unsigned allocBytes = 0;
+	unsigned freeBlocks = 0;
+	unsigned freeBytes = 0;
+	unsigned dataStructureBytes = 8;
+	while (*(unsigned*)(i) != ~0)
+	{
+		unsigned size = *(unsigned*)(i) & ~1;
+		if (*(unsigned*)(i) & 1)
 		{
-			if (curr > *addr) //Means [curr] needs to be adjusted
-			{
-				need_shifting[shifted++] = index;
-				if (!upper_bound || curr < upper_bound)
-					upper_bound = curr;
-			}
-			count++;
+			freeBlocks++;
+			freeBytes += size;
 		}
-		index++;
+		else
+		{
+			allocBlocks++;
+			allocBytes += size;
+		}
+		dataStructureBytes += 8;
+		i += size;
 	}
+	printf("Number of allocated blocks : %d", allocBlocks);
+	printf("Number of free blocks  : %d", freeBlocks);
+	printf("Raw total number of bytes allocated : %d", allocBytes);
+	printf("Padded total number of bytes allocated : %d", allocBytes);
+	printf("Raw total number of bytes free : %d", freeBytes);//??
+	printf("Aligned total number of bytes free : %d", freeBytes);
+	printf("Total number of Malloc requests: %d", mallocs);
+	printf("Total number of Free requests: %d", frees);
+	printf("Total number of request failures: %d", fails);
+	printf("Average clock cycles for a Malloc request: %d", mallocTime / mallocs);
+	printf("Average clock cycles for a Free request: %d", freeTime / frees);
+	printf("Total clock cycles for all requests: %d", mallocTime + freeTime);
 
-	//Two scenarios: the block isn't/is already at the end of the heap
-	if(upper_bound) //Isn't last
-	{
-		size_t size = upper_bound - *addr;
-
-		int block;
-		while (need_shifting[block])
-			redir_tabl[need_shifting[block++]] -= size;
-      //This *should* move a block over per iteration
-
-		*(addrs_t*)(baseptr + 8) -= size;
-	}
-	else //Is last, assign free space to given address
-		*(addrs_t*)(baseptr + 8) = *addr;
-
-	//Vacate the table spot
-	*addr = NULL;
-
-	//Block lost, decrement
-	*(unsigned*)(baseptr) -= 1;
+	/*
+Number of allocated blocks : XXXX
+Number of free blocks  : XXXX (discounting padding bytes)
+Raw total number of bytes allocated : XXXX (which is the actual total bytes requested)
+Padded total number of bytes allocated : XXXX (which is the total bytes requested plus internally fragmented blocks wasted due to padding/alignment)
+Raw total number of bytes free : XXXX
+Aligned total number of bytes free : XXXX (which is sizeof(M1) minus the padded total number of bytes allocated. You should account for meta-datastructures inside M1 also)
+Total number of Malloc requests : XXXX
+Total number of Free requests: XXXX
+Total number of request failures: XXXX (which were unable to satisfy the allocation or de-allocation requests)
+Average clock cycles for a Malloc request: XXXX
+Average clock cycles for a Free request: XXXX
+Total clock cycles for all requests: XXXX
+	*/
 }
 
-addrs_t* VPut(any_t data, size_t size)
-{
-	addrs_t* addr = VMalloc(size);
-	if(addr)
-		memcpy(*addr, data, size);
-	return addr;
-}
-
-void VGet(any_t return_data, addrs_t* addr, size_t size)
-{
-  if(addr)
-  {
-	  memcpy(return_data, *addr, size);
-	  VFree(addr);
-  }
-}
-
-int main()
-{
-  return 0;
-}
+/*README:
+Allocated heap size includes the space used by all data structures to maintain the heap
+Size in the header and footer includes the header and footer size. e.g. if i points to the header, i+size points to the header of the next
+element in the heap.
+Heap sizes are rounded up to the nearest multiple of 8
+A heap cannot be allocated without at least 24 bytes of memory allocated. Attempts to do so will result in Init returning without
+initilizing the heap
+Attempts to Malloc 0 bytes will result in a null pointer return
+Any free blocks of 8 bytes will be incorperated as internal fragmentation, as the free list takes the 
+All alignment fragmentation is internal, therefore padded allocated and raw allocated are the same value
+Failed mallocs are included in the time average
+*/
