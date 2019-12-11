@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#define rdtsc(x)      __asm__ __volatile__("rdtsc \n\t" : "=A" (*(x)))
 
 typedef char *addrs_t;
 typedef void *any_t;
@@ -14,7 +15,7 @@ unsigned frees = 0;
 unsigned fails = 0;
 unsigned mallocTime = 0;
 unsigned freeTime = 0;
-char pad[];
+char pad[1024*1024];
 
 
 void Init(size_t size)
@@ -42,11 +43,20 @@ addrs_t Malloc(size_t size)
 	/*Returns the address of a free block of the given size. If no such block exists, returns null*/
 	//Start timer and check pad bytes
 	unsigned necessaryPad = 8 - size % 8;
-	int start = rdtsc();
+	unsigned long start, end;
+	rdtsc(&start);
 
 	//Check if size is 0
 	if (!size)
+	{
+		//Heapcheker stuff
+		rdtsc(&end);
+		mallocTime += end - start;
+		mallocs++;
+		fails++;
+
 		return NULL;
+	}
 
 	//Internally fragment so stuff falls on boundries
 	if (size % 8)
@@ -63,7 +73,15 @@ addrs_t Malloc(size_t size)
 	unsigned blockSize = *(unsigned*)(i)&~1; //Includes header and footer
 	//Check for heap end
 	if (*(unsigned*)(i) == ~0)
+	{
+		//heapchecker stuff
+		rdtsc(&end);
+		mallocTime += end - start;
+		mallocs++;
+		fails++;
+
 		return NULL;
+	}
 
 	//Check if a block needs to be split
 	if (blockSize == size + 8 || blockSize == size + 16)
@@ -84,7 +102,8 @@ addrs_t Malloc(size_t size)
 	}
 
 	//Update stuff for heapchecker
-	mallocTime += rdtsc() - start;
+	rdtsc(&end);
+	mallocTime += end - start;
 	mallocs++;
 	pad[i - baseptr] = necessaryPad;
 	padBytes += necessaryPad;
@@ -95,6 +114,19 @@ addrs_t Malloc(size_t size)
 
 void Free(addrs_t addrs)
 {
+	//Heapchecker
+	unsigned long start, end;
+	rdtsc(&start);
+	//Make sure address valid
+	if (!addrs)
+	{
+		rdtsc(&end);
+		freeTime += end - start;
+		frees++;
+		fails++;
+		return;
+	}
+
 	//Define sizes of each block to reduce the clusterfuck of pointer(and memory accesses)
 	unsigned freedBlockSize = *(unsigned*)(addrs - 4);
 	unsigned beforeBlockSize = *(unsigned*)(addrs - 8) & ~1;
@@ -134,6 +166,11 @@ void Free(addrs_t addrs)
 		*(unsigned*)(addrs - 4) = freedBlockSize | 1;
 		*(unsigned*)(afterBlockHeader - 4) = freedBlockSize | 1;
 	}
+	//Heapchecker
+	rdtsc(&end);
+	freeTime += end - start;
+	frees++;
+	padBytes -= pad[addrs-4-baseptr];
 }
 
 addrs_t Put(any_t data, size_t size)
@@ -160,7 +197,7 @@ void heapChecker()
 	unsigned allocBytes = 0;
 	unsigned freeBlocks = 0;
 	unsigned freeBytes = 0;
-	unsigned dataStructureBytes = 8;
+	unsigned dataStructureFull = 0;
 	while (*(unsigned*)(i) != ~0)
 	{
 		unsigned size = *(unsigned*)(i) & ~1;
@@ -173,22 +210,24 @@ void heapChecker()
 		{
 			allocBlocks++;
 			allocBytes += size;
+			dataStructureFull += 8;
 		}
-		dataStructureBytes += 8;
 		i += size;
 	}
-	printf("Number of allocated blocks : %d", allocBlocks);
-	printf("Number of free blocks  : %d", freeBlocks);
-	printf("Raw total number of bytes allocated : %d", allocBytes);
-	printf("Padded total number of bytes allocated : %d", allocBytes);
-	printf("Raw total number of bytes free : %d", freeBytes);//??
-	printf("Aligned total number of bytes free : %d", freeBytes);
-	printf("Total number of Malloc requests: %d", mallocs);
-	printf("Total number of Free requests: %d", frees);
-	printf("Total number of request failures: %d", fails);
-	printf("Average clock cycles for a Malloc request: %d", mallocTime / mallocs);
-	printf("Average clock cycles for a Free request: %d", freeTime / frees);
-	printf("Total clock cycles for all requests: %d", mallocTime + freeTime);
+	printf("Number of allocated blocks : %d\n", allocBlocks);
+	printf("Number of free blocks  : %d\n", freeBlocks);
+	printf("Raw total number of bytes allocated : %d\n", allocBytes - padBytes - dataStructureFull);
+	printf("Padded total number of bytes allocated : %d\n", allocBytes);
+	printf("Raw total number of bytes free : %d\n", freeBytes);
+	printf("Aligned total number of bytes free : %d\n", freeBytes);
+	printf("Total number of Malloc requests: %d\n", mallocs);
+	printf("Total number of Free requests: %d\n", frees);
+	printf("Total number of request failures: %d\n", fails);
+	if(mallocs)
+		printf("Average clock cycles for a Malloc request: %d\n", (unsigned)(mallocTime / mallocs));
+	if(frees)
+		printf("Average clock cycles for a Free request: %d\n", (unsigned)(freeTime / frees));
+	printf("Total clock cycles for all requests: %d\n", mallocTime + freeTime);
 
 	/*
 Number of allocated blocks : XXXX
@@ -196,7 +235,7 @@ Number of free blocks  : XXXX (discounting padding bytes)
 Raw total number of bytes allocated : XXXX (which is the actual total bytes requested)
 Padded total number of bytes allocated : XXXX (which is the total bytes requested plus internally fragmented blocks wasted due to padding/alignment)
 Raw total number of bytes free : XXXX
-Aligned total number of bytes free : XXXX (which is sizeof(M1) minus the padded total number of bytes allocated. You should account for meta-datastructures inside M1 also)
+Aligned total number of bytes free : XXXX (which is sizeof(M1) minus the padded total number of bytes allocated. You should account for meta-datastruqctures inside M1 also)
 Total number of Malloc requests : XXXX
 Total number of Free requests: XXXX
 Total number of request failures: XXXX (which were unable to satisfy the allocation or de-allocation requests)
@@ -205,6 +244,24 @@ Average clock cycles for a Free request: XXXX
 Total clock cycles for all requests: XXXX
 	*/
 }
+//#if 0
+int main(int arg, char* args)
+{
+	Init(566);
+	int i;
+	addrs_t a[8];
+	for(i = 0; i<8; i++)
+	{
+		a[i] = Malloc(10*i);
+	}
+	heapChecker();
+	for(i = 0; i<8; i++)
+	{
+		Free(a[i]);
+	}
+	heapChecker();
+}
+//#endif
 
 /*README:
 Allocated heap size includes the space used by all data structures to maintain the heap
