@@ -6,8 +6,6 @@ typedef char *addrs_t;
 typedef void *any_t;
 
 addrs_t baseptr;
-
-//All of this needs to go
 addrs_t redir_tabl[65536];
 
 void VInit(size_t size)
