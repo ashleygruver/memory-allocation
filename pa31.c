@@ -33,7 +33,6 @@ void Init(size_t size)
 	*(unsigned*)(baseptr + size - 8) = (size - 8) | 1;
 
 	//Set heap beginning and end buffer
-	//TODO: Fix the buffers
 	*(unsigned*)(baseptr) = 0; //Always marked as used, so it won't try to be merged
 	*(unsigned*)(baseptr + size - 4) = ~0; //Will cause the loop to exit, but is an easy flag to catch
 }
@@ -252,25 +251,3 @@ Average clock cycles for a Free request: XXXX
 Total clock cycles for all requests: XXXX
 	*/
 }
-//#if 0
-int main(int arg, char* args)
-{
-	Init(32);
-	addrs_t a = Malloc(1);
-	Free(a);
-	heapChecker();
-}
-//#endif
-
-/*README:
-Allocated heap size includes the space used by all data structures to maintain the heap
-Size in the header and footer includes the header and footer size. e.g. if i points to the header, i+size points to the header of the next
-element in the heap.
-Heap sizes are rounded up to the nearest multiple of 8
-A heap cannot be allocated without at least 24 bytes of memory allocated. Attempts to do so will result in Init returning without
-initilizing the heap
-Attempts to Malloc 0 bytes will result in a null pointer return
-Any free blocks of 8 bytes will be incorperated as internal fragmentation, as the free list takes the 
-All alignment fragmentation is internal, therefore padded allocated and raw allocated are the same value
-Failed mallocs are included in the time average
-*/

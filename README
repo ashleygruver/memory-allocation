@@ -1,0 +1,22 @@
+Jacob Gruver - jgruver - U28848866
+
+Richard Xiao - richardx - U38118540
+
+Jacob - Regular Heap management
+Heap edge cases:
+Heap sizes are rounded up to the nearest multiple of 8
+A heap cannot be allocated without at least 24 bytes of memory allocated. Attempts to do so will result in Init returning without
+initilizing the heap
+Attempts to Malloc 0 bytes will result in a null pointer return
+Any free blocks of 8 bytes will be incorperated as internal fragmentation
+All alignment based fragmentation is internal to the 
+Size in the header and footer includes the header and footer size. e.g. if i points to the header, i+size points to the header of the next element in the heap.
+When passed a null pointer, free and get will do nothing, when passed a pointer that is neither null nor a valid free target, behavior is unpredictable
+
+Heap checker edge cases:
+The Heapchecker may fail in heaps larger than 1024KB
+Any processes needed for the Heapchecker are excluded from the time counter
+Allocated heap size does not include data structures. Only allocated bytes and internal fragmentation
+All alignment fragmentation is internal, therefore total free bytes and raw free bytes are the same value
+Failed mallocs and frees are included in the time average
+Average times will not print if there have been no calls
