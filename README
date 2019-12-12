@@ -1,5 +1,4 @@
 Jacob Gruver - jgruver - U28848866
-
 Richard Xiao - richardx - U38118540
 
 Jacob - Regular Heap management
@@ -25,9 +24,16 @@ Richard (Virtual Heap Management)
 VHeap edge cases:
 > Heap sizes are rounded up to the nearest multiple of 8
 > Heap size is actually +16 than the size passed in VInit() due to data structures
-> A heap can only have up to 65536 entries, the size of the redirection table
+> A heap can only have up to 65536 entries, the size of the redirection table 
+> Attempts to VMalloc entries over the table size results in a null pointer
 > Attempts to VMalloc 0 bytes results in a null pointer
-> Attempts to VFree an empty VHeap results in nothing happening (will also occur if null pointer is passed)
+> Attempts to VFree an empty VHeap results in nothing happening
+> Attempts to VFree an address outside of the table results in nothing happening
 
 Heap Check edge cases:
-(see Jacob's Heap Checker edge cases)
+> Any processes needed for the Heap Check are excluded from the time counter
+> Allocated heap size does not include data structures. Only allocated bytes and internal fragmentation are counted.
+> All alignment fragmentation is internal, therefore total free bytes and raw free bytes are the same value
+> Failed VMalloc and VFrees are included in the time average
+> Average times will not print if there have been no calls
+(Citation: you can see where this one is from)
