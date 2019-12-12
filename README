@@ -11,6 +11,7 @@ Any free blocks of 8 bytes will be incorperated as internal fragmentation
 All alignment based fragmentation is internal to the 
 Size in the header and footer includes the header and footer size. e.g. if i points to the header, i+size points to the header of the next element in the heap.
 When passed a null pointer, free and get will do nothing, when passed a pointer that is neither null nor a valid free target, behavior is unpredictable
+Total data structure size: 8*allocated blocks + 8 bytes all included in the heap request
 
 Heap checker edge cases:
 The Heapchecker may fail in heaps larger than 1024KB
