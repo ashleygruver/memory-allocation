@@ -231,12 +231,12 @@ void heapChecker()
 {
 	unsigned allocBlocks = *(unsigned*)(baseptr);
 	unsigned allocBytes = *(addrs_t*)(baseptr + 8) - baseptr;
-	unsigned freeBlocks, freeBytes;
+	unsigned freeBlocks = 0, freeBytes = 0;
   //Check if the allocated blocks occupy the whole space
   if(allocBytes < *(unsigned*)(baseptr + 4))
   {
     //Discount data structures size (which is 16 bytes)
-    freeBytes = *(unsigned*)(baseptr + 4) - allocBytes - 16;
+    freeBytes = *(unsigned*)(baseptr + 4) - allocBytes;
     freeBlocks++;
   }
   //Discount data structures size
