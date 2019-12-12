@@ -20,3 +20,14 @@ Allocated heap size does not include data structures. Only allocated bytes and i
 All alignment fragmentation is internal, therefore total free bytes and raw free bytes are the same value
 Failed mallocs and frees are included in the time average
 Average times will not print if there have been no calls
+
+Richard (Virtual Heap Management)
+VHeap edge cases:
+> Heap sizes are rounded up to the nearest multiple of 8
+> Heap size is actually +16 than the size passed in VInit() due to data structures
+> A heap can only have up to 65536 entries, the size of the redirection table
+> Attempts to VMalloc 0 bytes results in a null pointer
+> Attempts to VFree an empty VHeap results in nothing happening (will also occur if null pointer is passed)
+
+Heap Check edge cases:
+(see Jacob's Heap Checker edge cases)
